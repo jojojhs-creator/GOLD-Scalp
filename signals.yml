@@ -1,0 +1,45 @@
+name: Gold Scalper signals
+
+on:
+  schedule:
+    # every 15 min, a minute after each M15 bar close (UTC). GitHub may delay a
+    # few minutes under load — the bot tolerates that (checks last 3 bars).
+    - cron: "1,16,31,46 * * * *"
+  workflow_dispatch: {}   # lets you run it manually from the Actions tab
+
+# allow the job to commit the state file back (so signals aren't re-posted)
+permissions:
+  contents: write
+
+concurrency:
+  group: signals
+  cancel-in-progress: false
+
+jobs:
+  run:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - run: pip install -r requirements.txt
+
+      - name: Run signal bot
+        env:
+          TELEGRAM_TOKEN: ${{ secrets.TELEGRAM_TOKEN }}
+          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+          TWELVEDATA_KEY: ${{ secrets.TWELVEDATA_KEY }}
+        run: python gold_scalper_bot.py
+
+      - name: Persist de-dupe state
+        run: |
+          if [[ -n "$(git status --porcelain last_signal.txt)" ]]; then
+            git config user.name "signal-bot"
+            git config user.email "bot@users.noreply.github.com"
+            git add last_signal.txt
+            git commit -m "state: last signal"
+            git push
+          fi
