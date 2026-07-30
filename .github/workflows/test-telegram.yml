@@ -1,0 +1,13 @@
+name: Test Telegram
+on:
+  workflow_dispatch: {}
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Send test message
+        env:
+          T: ${{ secrets.TELEGRAM_TOKEN }}
+          C: ${{ secrets.TELEGRAM_CHAT_ID }}
+        run: |
+          curl -s "https://api.telegram.org/bot${T}/sendMessage" --data-urlencode "chat_id=${C}" --data-urlencode "text=Gold Scalper bot connected - one-time test message."
