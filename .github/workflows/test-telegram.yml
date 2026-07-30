@@ -5,9 +5,13 @@ jobs:
   test:
     runs-on: ubuntu-latest
     steps:
-      - name: Send test message
+      - name: Send and verify
         env:
           T: ${{ secrets.TELEGRAM_TOKEN }}
           C: ${{ secrets.TELEGRAM_CHAT_ID }}
         run: |
-          curl -s "https://api.telegram.org/bot${T}/sendMessage" --data-urlencode "chat_id=${C}" --data-urlencode "text=Gold Scalper bot connected - one-time test message."
+          echo "token length: ${#T} | chat starts with: ${C:0:4}"
+          resp=$(curl -sS "https://api.telegram.org/bot${T}/sendMessage" -d chat_id="${C}" -d text="Gold Scalper bot connected - test message" -w " HTTP:%{http_code}")
+          echo "Telegram response: $resp"
+          echo "$resp" | grep -q '"ok":true' || { echo "FAILED - Telegram rejected the message"; exit 1; }
+          echo "SUCCESS - message sent to channel"
