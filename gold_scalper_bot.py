@@ -2,19 +2,21 @@
 """
 Gold Scalper signal bot
 =======================
-Posts XAUUSD M15 "Gold Scalper" signals (sweep + CISD) to a Telegram channel.
-Mirrors the TradingView strategy's KEEPER config (M15). Run every 15 minutes,
-just after each bar close (GitHub Actions cron or your PC's Task Scheduler).
+Posts XAUUSD "Gold Scalper" signals (sweep + CISD) to a Telegram channel.
+Mirrors the TradingView strategy. M15 is the VALIDATED keeper; M5/M1 are
+EXPERIMENTAL (unvalidated) and get a warning label. Run each timeframe on its
+own schedule (GitHub Actions cron), just after each bar close.
 
 Env vars required:
   TELEGRAM_TOKEN     bot token from @BotFather
   TELEGRAM_CHAT_ID   channel id/username the bot posts to (e.g. @mygoldsignals or -1001234567890)
   TWELVEDATA_KEY     free API key from twelvedata.com
 Optional:
-  SYMBOL   (default "XAU/USD")
-  INTERVAL (default "15min")
+  SYMBOL     (default "XAU/USD")
+  INTERVAL   (default "15min"; use "5min" / "1min" for the experimental feeds)
+  STATE_FILE (default "last_signal.txt"; give each feed its own file)
 
-Signal logic is a faithful port of the Gold Scalper Pine strategy (M15 defaults).
+Signal logic is a faithful port of the Gold Scalper Pine strategy.
 It only ever evaluates CLOSED bars, and de-dupes so each signal is posted once.
 """
 import os
@@ -24,7 +26,7 @@ import requests
 import pandas as pd
 import numpy as np
 
-# ── Config ──────────────────────────────────────────────────────────────────
+# -- Config -------------------------------------------------------------------
 TG_TOKEN = os.environ["TELEGRAM_TOKEN"]
 TG_CHAT  = os.environ["TELEGRAM_CHAT_ID"]
 TD_KEY   = os.environ["TWELVEDATA_KEY"]
@@ -32,10 +34,17 @@ SYMBOL   = os.environ.get("SYMBOL", "XAU/USD")
 INTERVAL = os.environ.get("INTERVAL", "15min")
 STATE_FILE = os.environ.get("STATE_FILE", "last_signal.txt")
 
-# ── Strategy params (Gold Scalper M15 keeper) ───────────────────────────────
-PIVOT_LEN    = 9      # swing lookback (M15 auto)
-RUN_LEN      = 2      # CISD candles to confirm (M15 auto)
-ARM_BARS     = 14     # setup stays armed
+# -- Strategy params -- timeframe-aware, mirrors the Pine auto-tune (Medium) --
+# M15 is the VALIDATED keeper. M5/M1 use the Pine's low-TF auto-tune values so
+# the feed matches those charts, but they are EXPERIMENTAL / unvalidated.
+def tf_params(interval):
+    if interval == "1min":
+        return 10, 1, 18   # basePiv, baseRun, baseArm  (M1)
+    if interval == "5min":
+        return 9, 1, 16    # (M5)
+    return 9, 2, 14        # (M15 keeper -- default)
+
+PIVOT_LEN, RUN_LEN, ARM_BARS = tf_params(INTERVAL)
 COOLDOWN     = max(2, RUN_LEN + 1)
 SL_BUF_ATR   = 0.10
 MIN_RISK_ATR = 0.4
@@ -182,13 +191,21 @@ def save_last(t):
         f.write(t)
 
 
+TF_LABELS = {"1min": "M1", "5min": "M5", "15min": "M15", "30min": "M30"}
+
+
 def fmt(sig):
-    emoji = "🟢" if sig["dir"] == "BUY" else "🔴"
+    emoji = "\U0001F7E2" if sig["dir"] == "BUY" else "\U0001F534"
     p = lambda x: f"{x:.2f}"
-    return (f"{emoji} {sig['dir']} XAUUSD M15\n"
-            f"Entry {p(sig['entry'])}\n"
-            f"SL {p(sig['sl'])}\n"
-            f"TP {p(sig['tp2'])}  (trim 50% at {p(sig['trim'])}, then breakeven)")
+    label = TF_LABELS.get(INTERVAL, INTERVAL)
+    msg = (f"{emoji} {sig['dir']} XAUUSD {label}\n"
+           f"Entry {p(sig['entry'])}\n"
+           f"SL {p(sig['sl'])}\n"
+           f"TP {p(sig['tp2'])}  (trim 50% at {p(sig['trim'])}, then breakeven)")
+    # M15 is the only validated frame; everything else is flagged clearly.
+    if INTERVAL != "15min":
+        msg += "\n\n⚠️ EXPERIMENTAL -- unvalidated, for testing only."
+    return msg
 
 
 def send(text):
